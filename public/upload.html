@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Upload Note — PGDCA</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <style>
+    .formCard{display:block;padding:18px;border-radius:12px;background:linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01));box-shadow:0 12px 40px rgba(0,0,0,0.6)}
+    label{display:block;margin:12px 0}
+    input[type=file]{color:var(--text)}
+    button{padding:10px 14px;border-radius:10px;background:linear-gradient(90deg,#7c3aed,#06b6d4);border:none;color:white}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Upload a Note</h1>
+    <div class="formCard">
+      <form method="POST" action="/upload" enctype="multipart/form-data">
+        <label>Note file: <input type="file" name="noteFile" required></label>
+        <label>Subject: <input name="subject" placeholder="E.g., DBMS, OS"></label>
+        <label>Uploader name: <input name="uploader" placeholder="Your name"></label>
+        <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:10px"><a class="btn" href="/">Home</a><button type="submit">Upload</button></div>
+      </form>
+    </div>
+    <p style="margin-top:12px;color:rgba(230,238,246,0.75)">If you are the owner, use the <a href="/owner">Owner</a> panel to upload with your account.</p>
+  </div>
+</body>
+</html>

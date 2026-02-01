@@ -1,0 +1,165 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PGDCA All Subject Note — Create By Avi</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <style>
+    .hero{padding:36px 0;text-align:center}
+    .hero .title{font-size:2.2rem;letter-spacing:1px;margin:0}
+    .subtitle{color:rgba(230,238,246,0.8);margin:8px 0 18px}
+    .btn{display:inline-block;padding:12px 18px;border-radius:10px;background:linear-gradient(90deg,#7c3aed,#06b6d4);color:white;text-decoration:none;font-weight:700;margin:6px;box-shadow:0 10px 30px rgba(12,20,39,0.5);transform:translateY(0);transition:transform .12s}
+    .btn:hover{transform:translateY(-4px)}
+    .avi{display:flex;justify-content:center;gap:12px;margin-top:16px}
+    .avi .letter{width:56px;height:56px;border-radius:10px;background:rgba(255,255,255,0.04);display:grid;place-items:center;font-weight:800;font-size:1.3rem;color:var(--text);opacity:0;transform:translateY(18px)}
+    .avi .letter.show{opacity:1;transform:none;transition:all .36s cubic-bezier(.2,.9,.2,1)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <h1 class="title">PGDCA All Subject Note</h1>
+      <div class="subtitle">Create By Avi — Trusted notes collection</div>
+      <div class="hero-panel" style="position:relative;z-index:2">
+        <div class="hero-overlay" aria-hidden="true"></div>
+        <div class="hero-content" style="position:relative;z-index:3">
+          <a class="btn" href="/upload">Upload a note</a>
+          <a class="btn" href="/notes">Browse notes</a>
+          <a class="btn" href="/dashboard">Dashboard</a>
+          <a class="btn" href="/owner" style="background:transparent;border:1px solid rgba(255,255,255,0.06);">Owner</a>
+        </div>
+      </div>
+
+      <!-- Background single video (cute welcome). Keep muted for autoplay; audio handled separately. -->
+      <div class="hero-video-wrapper" aria-hidden="true">
+        <video id="bgPlaylistVideo" class="bg-single" autoplay muted loop playsinline preload="auto">
+          <source src="/static/cute-character-welcome.mp4" type="video/mp4">
+          <!-- remote fallback -->
+          <source src="https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.mp4" type="video/mp4">
+        </video>
+      </div>
+
+      <!-- Electric sound (will play on user gesture). Place public/static/electric.mp3 to use a local file. -->
+      <audio id="electricSound" preload="auto">
+        <source src="/static/electric.mp3" type="audio/mpeg">
+      </audio>
+
+      <script>
+        (function(){
+          const audio = document.getElementById('electricSound');
+          function tryPlayAudio(){
+            if(!audio) return;
+            audio.currentTime = 0;
+            const p = audio.play();
+            if(p && p.catch){
+              p.catch(()=>{
+                if(!document.getElementById('enableSoundBtn')){
+                  const btn = document.createElement('button');
+                  btn.id = 'enableSoundBtn';
+                  btn.textContent = 'Play sound';
+                  btn.className = 'btn';
+                  btn.style.position = 'fixed';
+                  btn.style.right = '18px';
+                  btn.style.bottom = '18px';
+                  btn.style.zIndex = 9999;
+                  btn.onclick = ()=>{ audio.play().catch(()=>{}); btn.remove(); };
+                  document.body.appendChild(btn);
+                }
+              });
+            }
+          }
+
+          // Single background video element
+          const bg = document.getElementById('bgPlaylistVideo');
+
+          // trigger visual electric effect and start audio + ensure video plays
+          function triggerAviElectric(){
+            const avi = document.querySelector('.avi');
+            if(avi){
+              avi.classList.add('electric');
+              avi.setAttribute('data-electric','1');
+            }
+            document.dispatchEvent(new Event('avi-electric'));
+            // try to play the background video (muted autoplay should work).
+            if(bg){
+              bg.play().catch(()=>{
+                // ignore; user can interact to start playback
+              });
+            }
+          }
+
+          // Hook DOMContentLoaded; allow other reveal scripts to run first.
+          window.addEventListener('DOMContentLoaded', ()=>{
+            setTimeout(triggerAviElectric, 700);
+            // also try to play audio once on user gesture
+            function onFirstGesture(){ tryPlayAudio(); window.removeEventListener('pointerdown', onFirstGesture); }
+            window.addEventListener('pointerdown', onFirstGesture, {passive:true});
+          });
+        })();
+      </script>
+
+        <!-- Diagnostic panel for video status -->
+        <div id="videoStatus" style="position:fixed;right:12px;top:12px;z-index:9999;background:rgba(0,0,0,0.6);color:#fff;padding:10px;border-radius:8px;font-size:13px;min-width:220px">Loading video status...</div>
+        <script>
+          (function(){
+            const panel = document.getElementById('videoStatus');
+            const bg = document.getElementById('bgPlaylistVideo');
+            if(!panel || !bg) return;
+            function set(msg){ panel.textContent = msg; console.log('[videoStatus]', msg); }
+            function updateSrc(){ set('src: ' + (bg.currentSrc || bg.src || '(none)')); }
+            bg.addEventListener('loadstart', ()=> set('loading...'));
+            bg.addEventListener('loadeddata', ()=> set('loaded — ready to play'));
+            bg.addEventListener('canplay', ()=> set('canplay'));
+            bg.addEventListener('playing', ()=> set('playing'));
+            bg.addEventListener('pause', ()=> set('paused'));
+            bg.addEventListener('error', (e)=>{
+              const code = bg.error && bg.error.code ? bg.error.code : 'unknown';
+              set('ERROR loading video (code ' + code + '). Check public/static files and console.');
+              console.error('bgPlaylistVideo error', bg.error, e);
+            });
+            bg.addEventListener('ended', ()=> set('ended — advancing'));
+            // update displayed src periodically
+            setInterval(updateSrc, 800);
+            // also expose a manual next button when clicked to help testing
+            const btn = document.createElement('button');
+            btn.textContent = 'Next clip';
+            btn.className = 'btn';
+            btn.style.marginTop = '8px';
+            btn.onclick = ()=>{ bg.dispatchEvent(new Event('ended')); };
+            panel.appendChild(document.createElement('br'));
+            panel.appendChild(btn);
+            // Add a toggle to show/hide a debug outline around the video element
+            const toggle = document.createElement('button');
+            toggle.textContent = 'Toggle outline';
+            toggle.className = 'btn';
+            toggle.style.marginLeft = '6px';
+            toggle.onclick = ()=>{
+              const wrap = document.querySelector('.hero-video-wrapper');
+              if(!wrap) return;
+              wrap.classList.toggle('debug');
+            };
+            panel.appendChild(toggle);
+            // Enable outline by default to aid troubleshooting
+            const wrap = document.querySelector('.hero-video-wrapper');
+            if(wrap) wrap.classList.add('debug');
+          })();
+        </script>
+      <div class="avi" aria-hidden="false">
+        <div class="letter" id="l1">A</div>
+        <div class="letter" id="l2">V</div>
+        <div class="letter" id="l3">I</div>
+      </div>
+      <div style="margin-top:12px;color:rgba(230,238,246,0.75)">PGDCA All Subject Note — Create By Avi</div>
+    </div>
+    <p style="text-align:center;color:rgba(230,238,246,0.8)">Upload your notes and let students download after filling their details. You will see who downloads.</p>
+  </div>
+  <script>
+    // sequential reveal of A V I and then hide
+    const letters = [document.getElementById('l1'), document.getElementById('l2'), document.getElementById('l3')];
+    let idx = 0;
+    function showNext(){ if(idx < letters.length){ letters[idx].classList.add('show'); idx++; setTimeout(showNext, 420); } else { setTimeout(()=>{ letters.forEach(l=>l.classList.remove('show')); idx=0; setTimeout(showNext, 900); }, 1200); } }
+    showNext();
+  </script>
+</body>
+</html>
