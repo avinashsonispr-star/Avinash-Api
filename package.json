@@ -1,0 +1,17 @@
+{
+  "name": "pgdca-notes",
+  "version": "1.0.0",
+  "description": "Simple notes upload/download prototype for PGDCA All Subject Note Create By Avi",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "multer": "^1.4.5-lts.1",
+    "sqlite3": "^5.1.6",
+    "nodemon": "^3.0.1",
+    "express-session": "^1.17.3",
+    "bcryptjs": "^2.4.3"
+  }
+}
