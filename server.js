@@ -5,6 +5,8 @@ const fs = require('fs');
 const sqlite3 = require('sqlite3').verbose();
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
+const https = require('https');
+const { URLSearchParams } = require('url');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -42,6 +44,8 @@ db.serialize(() => {
     originalname TEXT,
     subject TEXT,
     uploader TEXT,
+    mimetype TEXT,
+    size INTEGER,
     created_at TEXT
   )`);
   db.run(`CREATE TABLE IF NOT EXISTS downloads (
@@ -67,6 +71,39 @@ db.serialize(() => {
   )`);
 });
 
+// Helper to send SMS via Twilio if configured. Requires these env vars:
+// TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM
+function sendSms(to, body){
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_FROM;
+  if (!sid || !token || !from) return Promise.reject(new Error('Twilio not configured'));
+  const data = new URLSearchParams({ To: to, From: from, Body: body }).toString();
+  const options = {
+    hostname: 'api.twilio.com',
+    path: `/2010-04-01/Accounts/${sid}/Messages.json`,
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Content-Length': Buffer.byteLength(data),
+      'Authorization': 'Basic ' + Buffer.from(sid + ':' + token).toString('base64')
+    }
+  };
+  return new Promise((resolve, reject) => {
+    const req = https.request(options, (res) => {
+      let resp = '';
+      res.on('data', (d) => resp += d);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) return resolve(resp);
+        return reject(new Error('SMS send failed: ' + res.statusCode + ' ' + resp));
+      });
+    });
+    req.on('error', (e) => reject(e));
+    req.write(data);
+    req.end();
+  });
+}
+
 // Helper
 function escape(s){ if(!s) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
@@ -82,8 +119,8 @@ app.get('/upload', (req, res) => {
 app.post('/upload', upload.single('noteFile'), (req, res) => {
   const { subject, uploader } = req.body;
   if (!req.file) return res.status(400).send('No file uploaded');
-  const stmt = db.prepare('INSERT INTO notes(filename, originalname, subject, uploader, created_at) VALUES(?,?,?,?,?)');
-  stmt.run(req.file.filename, req.file.originalname, subject || '', uploader || '', new Date().toISOString(), function (err) {
+  const stmt = db.prepare('INSERT INTO notes(filename, originalname, subject, uploader, mimetype, size, created_at) VALUES(?,?,?,?,?,?,?)');
+  stmt.run(req.file.filename, req.file.originalname, subject || '', uploader || '', req.file.mimetype || '', req.file.size || 0, new Date().toISOString(), function (err) {
     if (err) return res.status(500).send('DB error');
     res.redirect('/notes');
   });
@@ -133,7 +170,7 @@ app.post('/owner-upload', upload.single('noteFile'), (req, res) => {
   const { subject } = req.body;
   const uploader = 'Avi (Owner)';
   if (!req.file) return res.status(400).send('No file uploaded');
-  db.run('INSERT INTO notes(filename, originalname, subject, uploader, created_at) VALUES(?,?,?,?,?)', [req.file.filename, req.file.originalname, subject || '', uploader, new Date().toISOString()], function (err) {
+  db.run('INSERT INTO notes(filename, originalname, subject, uploader, mimetype, size, created_at) VALUES(?,?,?,?,?,?,?)', [req.file.filename, req.file.originalname, subject || '', uploader, req.file.mimetype || '', req.file.size || 0, new Date().toISOString()], function (err) {
     if (err) return res.status(500).send('DB error');
     res.redirect('/dashboard');
   });
@@ -153,8 +190,16 @@ app.post('/owner-forgot-request', (req, res) => {
     const expires = Date.now() + 10*60*1000;
     db.run('INSERT INTO otps(phone,code,expires_at) VALUES(?,?,?)', [phone, code, expires], function (e) {
       if (e) return res.status(500).send('DB error');
-      // For demo, show code on a confirmation page (in prod send SMS via provider)
-      res.send(`<!doctype html><html><body><p>OTP for ${escape(phone)}: <strong>${code}</strong> (demo only)</p><p>Use this to <a href="/owner-forgot">enter OTP & reset password</a></p></body></html>`);
+      // Try sending SMS via Twilio if configured. Otherwise fallback to demo page that shows the code.
+      sendSms(phone, `Your PGDCA site OTP: ${code}`)
+        .then(() => {
+          res.send(`<!doctype html><html><body><p>OTP sent to ${escape(phone)}. Check your phone.</p><p>Proceed to <a href="/owner-forgot">enter OTP & reset password</a></p></body></html>`);
+        })
+        .catch((smsErr) => {
+          // fallback to demo display when SMS can't be sent
+          console.error('SMS error:', smsErr && smsErr.message);
+          res.send(`<!doctype html><html><body><p>OTP for ${escape(phone)}: <strong>${code}</strong> (demo only — SMS not configured)</p><p>Use this to <a href="/owner-forgot">enter OTP & reset password</a></p></body></html>`);
+        });
     });
   });
 });
@@ -174,13 +219,49 @@ app.post('/owner-forgot-verify', (req, res) => {
   });
 });
 
+// Owner change password while logged in
+app.post('/owner-change-password', (req, res) => {
+  if (!(req.session && req.session.owner)) return res.status(403).send('Forbidden');
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) return res.status(400).send('Missing fields');
+  db.get('SELECT id, passwordHash, phone FROM owner LIMIT 1', (err, row) => {
+    if (err || !row) return res.status(500).send('Owner not configured');
+    if (!bcrypt.compareSync(currentPassword, row.passwordHash)) return res.status(401).send('Current password incorrect');
+    const newHash = bcrypt.hashSync(newPassword, 10);
+    db.run('UPDATE owner SET passwordHash = ? WHERE id = ?', [newHash, row.id], function (e) {
+      if (e) return res.status(500).send('DB error');
+      res.send(`<!doctype html><html><body><p>Password changed successfully.</p><p><a href="/owner">Back</a></p></body></html>`);
+    });
+  });
+});
+
 // Notes listing
 app.get('/notes', (req, res) => {
-  db.all('SELECT id, originalname, subject, uploader, created_at FROM notes ORDER BY id DESC', (err, rows) => {
+  db.all('SELECT id, filename, originalname, subject, uploader, mimetype, size, created_at FROM notes ORDER BY id DESC', (err, rows) => {
     if (err) return res.status(500).send('DB error');
-    let html = `<!doctype html><html><head><meta charset="utf-8"><title>PGDCA All Subject Note - Notes</title><link rel="stylesheet" href="/static/styles.css"></head><body><div class="wrap"><h1>PGDCA All Subject Note — Create By Avi</h1><p><a href="/upload">Upload a note</a></p><table border="0" cellpadding="8"><tr><th>Title</th><th>Subject</th><th>Uploader</th><th>Uploaded</th><th></th></tr>`;
+    let html = `<!doctype html><html><head><meta charset="utf-8"><title>PGDCA All Subject Note - Notes</title><link rel="stylesheet" href="/static/styles.css"></head><body><div class="wrap"><h1>PGDCA All Subject Note — Create By Avi</h1><p><a href="/upload">Upload a note</a></p>`;
+
+    // Preview grid
+    html += `<div class="notes-grid">`;
     rows.forEach(r => {
-      html += `<tr><td>${escape(r.originalname)}</td><td>${escape(r.subject)}</td><td>${escape(r.uploader)}</td><td>${escape(r.created_at)}</td><td><a href="/download/${r.id}">Download</a></td></tr>`;
+      const url = '/uploads/' + r.filename;
+      let preview = '';
+      if (r.mimetype && r.mimetype.indexOf('image/') === 0){
+        preview = `<div class="card"><div class="title">${escape(r.originalname)}</div><div class="preview"><img src="${url}" alt="${escape(r.originalname)}"></div><div class="meta">${escape(r.created_at)}</div><div><a href="/download/${r.id}">Download</a></div></div>`;
+      } else if (r.mimetype === 'application/pdf'){
+        preview = `<div class="card"><div class="title">${escape(r.originalname)}</div><div class="preview"><iframe src="${url}"></iframe></div><div class="meta">${escape(r.created_at)}</div><div><a href="/download/${r.id}">Download</a></div></div>`;
+      } else {
+        preview = `<div class="card"><div class="title">${escape(r.originalname)}</div><div class="meta">${escape(r.created_at)}</div><div><a href="/download/${r.id}">Download</a></div></div>`;
+      }
+      html += preview;
+    });
+    html += `</div>`;
+
+    // Also include a table for details
+    html += `<h2>All notes</h2><table border="0" cellpadding="8"><tr><th>Title</th><th>Subject</th><th>Uploader</th><th>Uploaded</th><th>Size</th><th></th></tr>`;
+    rows.forEach(r => {
+      const sizeDisplay = r.size ? (Math.round(r.size/1024) + ' KB') : '';
+      html += `<tr><td>${escape(r.originalname)}</td><td>${escape(r.subject)}</td><td>${escape(r.uploader)}</td><td>${escape(r.created_at)}</td><td>${sizeDisplay}</td><td><a href="/download/${r.id}">Download</a></td></tr>`;
     });
     html += `</table><p><a href="/">Home</a> | <a href="/owner">Owner</a> | <a href="/dashboard">Dashboard</a></p></div></body></html>`;
     res.send(html);

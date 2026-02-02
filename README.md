@@ -23,3 +23,15 @@ Owner account setup
 
 Forgot password (demo)
 - If you forget the owner password, open http://localhost:3000/owner-forgot and enter the registered phone. The demo will generate an OTP (shown on-screen) which you can use to reset the password. In production you should replace that with a real SMS provider like Twilio.
+
+Twilio SMS (optional)
+---------------------
+To send OTPs directly to the owner's phone instead of displaying them on-screen, set these environment variables before starting the server:
+
+```powershell
+setx TWILIO_ACCOUNT_SID "your_sid"
+setx TWILIO_AUTH_TOKEN "your_auth_token"
+setx TWILIO_FROM "+1234567890"
+```
+
+After restarting the server OTPs will be delivered via Twilio. If Twilio is not configured the server will fall back to showing the OTP on-screen (demo mode).
